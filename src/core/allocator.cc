@@ -30,10 +30,38 @@ namespace infini
         size = this->getAlignedSize(size);
 
         // =================================== 作业 ===================================
-        // TODO: 设计一个算法来分配内存，返回起始地址偏移量
+        auto it = freeBlocks.begin();
+        for (; it != freeBlocks.end(); it++)
+        {
+            if (it->second == size)
+            {
+                break;
+            }
+            else if (it->second >= size)
+            {
+                freeBlocks[it->first + size] = it->second - size;
+                break;
+            }
+        }
+        size_t addr;
+        if (it == freeBlocks.end())
+        {
+            addr=peak;
+            peak += size;
+            
+        }
+        else
+        {
+            addr=it->first;
+            freeBlocks.erase(it);
+        }
+
+        usedBlocks[addr]=size;
+        used += size;
+
         // =================================== 作业 ===================================
 
-        return 0;
+        return addr;
     }
 
     void Allocator::free(size_t addr, size_t size)
@@ -42,7 +70,29 @@ namespace infini
         size = getAlignedSize(size);
 
         // =================================== 作业 ===================================
-        // TODO: 设计一个算法来回收内存
+ 
+        auto it=usedBlocks.find(addr);
+        if(it==usedBlocks.end())return;
+        usedBlocks.erase(it);
+        used-=size;
+
+        freeBlocks[addr]=size;
+        it=freeBlocks.find(addr);
+        if(it!=freeBlocks.begin()){
+            if(std::prev(it)->first+std::prev(it)->second==addr){
+                std::prev(it)->second+=it->second;
+                it=std::prev(freeBlocks.erase(it));
+            }
+        }
+        if(std::next(it)!=freeBlocks.end()){
+            if(it->first+it->second==std::next(it)->first){
+                it->second+=std::next(it)->second;
+                freeBlocks.erase(std::next(it));
+            }
+        }
+
+
+
         // =================================== 作业 ===================================
     }
 
