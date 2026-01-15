@@ -148,8 +148,41 @@ namespace infini
         // topological sorting first
         IT_ASSERT(topo_sort() == true);
 
-        // =================================== 作业 ===================================
-        // TODO：利用 allocator 给计算图分配内存
+        // =================================== 作业 ==================================
+        map<TensorObj *,size_t> outCounts;
+        for(auto &t:tensors){
+            outCounts[t.get()]=t->getTargets().size();
+        }
+        map<int,size_t> tOffsets;
+        for(auto &t:tensors){
+            if(t->getSource().get()==nullptr){
+                auto addr=allocator.alloc(t->getBytes());
+                tOffsets[t->getFuid()]=addr;
+            }
+        }
+        for(auto &op:ops){
+           for(auto &t:op->getOutputs()){
+                auto addr=allocator.alloc(t->getBytes());
+                tOffsets[t->getFuid()]=addr;
+           }
+           for(auto &t:op->getInputs()){
+            auto it=outCounts.find(t.get());
+            if(it!=outCounts.end()){
+                if(--it->second==0){
+                    allocator.free(tOffsets[it->first->getFuid()],it->first->getBytes());
+                }
+            }
+           }
+        }
+        char * bptr=(char*)allocator.getPtr();
+        for(auto &t:tensors){
+            Blob b=make_ref<BlobObj>(new BlobObj(runtime,bptr+tOffsets[t->getFuid()]));
+            t->setDataBlob(b);
+        }
+        
+        
+        
+        // 
         // HINT: 获取分配好的内存指针后，可以调用 tensor 的 setDataBlob 函数给 tensor 绑定内存
         // =================================== 作业 ===================================
 
