@@ -176,7 +176,7 @@ namespace infini
         }
         char * bptr=(char*)allocator.getPtr();
         for(auto &t:tensors){
-            Blob b=make_ref<BlobObj>(new BlobObj(runtime,bptr+tOffsets[t->getFuid()]));
+            Blob b=make_ref<BlobObj>(runtime,bptr+tOffsets[t->getFuid()]);
             t->setDataBlob(b);
         }
         

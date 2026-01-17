@@ -28,7 +28,7 @@ namespace infini
         IT_ASSERT(this->ptr == nullptr);
         // pad the size to the multiple of alignment
         size = this->getAlignedSize(size);
-
+        bool isEmpty=(freeBlocks.size()==0);
         // =================================== 作业 ===================================
         auto it = freeBlocks.begin();
         for (; it != freeBlocks.end(); it++)
@@ -45,9 +45,17 @@ namespace infini
         }
         size_t addr;
         if (it == freeBlocks.end())
-        {
-            addr=peak;
-            peak += size;
+        {   
+            if(isEmpty){
+                addr=peak;
+                peak += size;
+            }else{
+                it--;
+                addr=it->first;
+                peak+=(size-it->second);
+                freeBlocks.erase(it);
+            }
+
             
         }
         else
