@@ -97,15 +97,118 @@ namespace infini
         this->ops = std::move(sorted);
         return this->sorted = true;
     }
-
+    // 3124
+    // 3124
     void GraphObj::optimize()
     {
-        // =================================== 作业 ===================================
-        // TODO: 设计一个算法来实现指定的图优化规则
-        // 图优化规则如下：
-        // 1. 去除冗余的算子（例如，两个相邻的算子都是 transpose 算子，且做的是相反的操作，可以将其全部删除）
-        // 2. 合并算子（例如，矩阵乘算子中含有属性transA、transB，如果其输入存在transpose，且对最后两个维度做交换，就可以将transpose融入到矩阵乘算子的属性中去）
-        // =================================== 作业 ===================================
+        vector<Operator> removeOps;
+
+        for (auto &opPtr : ops)
+        {
+            if (opPtr->getOpType() == OpType::Transpose)
+            {
+
+                auto &op = *(TransposeObj *)opPtr.get(); // 第二个
+                auto input = op.getInputs(0);
+                if (input->getSource()->getOpType() == OpType::Transpose)
+                {
+                    auto &op2 = *(TransposeObj *)input->getSource().get(); // 第一个
+                    auto shape1 = op.getPermute();
+                    auto shape2 = op2.getPermute();
+
+                    bool flag = true;
+
+                    if (shape1.size() == shape2.size())
+                    {
+                        for (size_t i = 0; i < shape1.size(); i++)
+                        {
+                            if (shape2[shape1[i]] != (int)i)
+                            {
+                                flag = false;
+                            }
+                        }
+                    }
+
+                    if (flag)
+                    {
+                        auto output = op.getOutput(0);
+                        auto getTargets=output->getTargets();
+                        for(size_t i=0;i<getTargets.size();i++){
+                            auto input = op2.getInputs(0);
+                            auto target = getTargets[i];
+                            target->replaceInput(output, input);;
+                        }
+
+                        removeOps.push_back(opPtr);
+                        removeOps.push_back(input->getSource());
+                    }
+                }
+            }
+            else if (opPtr->getOpType() == OpType::MatMul)
+            {
+                auto &op = *(MatmulObj *)opPtr.get();
+                Tensor tensor;
+
+                tensor = op.getInputs()[0]; // Tensor A
+
+                if (tensor->getSource()->getOpType() == OpType::Transpose)
+                {
+                    auto &op2 = *(TransposeObj *)tensor->getSource().get();
+                    auto shape = op2.getPermute();
+                    int size = shape.size();
+                    int flag=true;
+                    for(int i=0;i<(int)shape.size()-2;i++){
+                        if(shape[i]!=i){
+                            flag=false;
+                        }
+                    }
+                    if (flag&&shape[size - 1] == size - 2 && shape[size - 2] == size - 1)
+                    {
+                        
+                        op.replaceInput(tensor, op2.getInputs(0));
+                        removeOps.push_back(tensor->getSource());
+                        op.setTransA(!op.getTransA());
+
+                    }
+                }
+
+                tensor = op.getInputs()[1]; // Tensor B
+
+                if (tensor->getSource()->getOpType() == OpType::Transpose)
+                {
+                    auto &op2 = *(TransposeObj *)tensor->getSource().get();
+                    auto shape = op2.getPermute();
+                    int size = shape.size();
+                    int flag=true;
+                    for(int i=0;i<(int)shape.size()-2;i++){
+                        if(shape[i]!=i){
+                            flag=false;
+                        }
+                    }
+                    if (flag&&shape[size - 1] == size - 2 && shape[size - 2] == size - 1)
+                    {
+                        op.replaceInput(tensor, op2.getInputs(0));
+                        removeOps.push_back(tensor->getSource());
+                        op.setTransB(!op.getTransB());
+                    }
+                }
+            }
+            // =================================== 作业 ===================================
+            // TODO: 设计一个算法来实现指定的图优化规则
+            // 图优化规则如下：
+            // 1. 去除冗余的算子（例如，两个相邻的算子都是 transpose 算子，且做的是相反的操作，可以将其全部删除）
+            // 2. 合并算子（例如，矩阵乘算子中含有属性transA、transB，如果其输入存在transpose，且对最后两个维度做交换，就可以将transpose融入到矩阵乘算子的属性中去）
+            // =================================== 作业 ===================================
+        }
+        for (auto &removeop : removeOps)
+        {
+ 
+            if(removeop->getOutputs()[0]->getTargets().size()==0)
+             {
+                    removeOperator(removeop);
+
+             }
+        }
     }
 
     Tensor GraphObj::getTensor(int fuid) const
@@ -149,40 +252,47 @@ namespace infini
         IT_ASSERT(topo_sort() == true);
 
         // =================================== 作业 ==================================
-        map<TensorObj *,size_t> outCounts;
-        for(auto &t:tensors){
-            outCounts[t.get()]=t->getTargets().size();
+        map<TensorObj *, size_t> outCounts;
+        for (auto &t : tensors)
+        {
+            outCounts[t.get()] = t->getTargets().size();
         }
-        map<int,size_t> tOffsets;
-        for(auto &t:tensors){
-            if(t->getSource().get()==nullptr){
-                auto addr=allocator.alloc(t->getBytes());
-                tOffsets[t->getFuid()]=addr;
+        map<int, size_t> tOffsets;
+        for (auto &t : tensors)
+        {
+            if (t->getSource().get() == nullptr)
+            {
+                auto addr = allocator.alloc(t->getBytes());
+                tOffsets[t->getFuid()] = addr;
             }
         }
-        for(auto &op:ops){
-           for(auto &t:op->getOutputs()){
-                auto addr=allocator.alloc(t->getBytes());
-                tOffsets[t->getFuid()]=addr;
-           }
-           for(auto &t:op->getInputs()){
-            auto it=outCounts.find(t.get());
-            if(it!=outCounts.end()){
-                if(--it->second==0){
-                    allocator.free(tOffsets[it->first->getFuid()],it->first->getBytes());
+        for (auto &op : ops)
+        {
+            for (auto &t : op->getOutputs())
+            {
+                auto addr = allocator.alloc(t->getBytes());
+                tOffsets[t->getFuid()] = addr;
+            }
+            for (auto &t : op->getInputs())
+            {
+                auto it = outCounts.find(t.get());
+                if (it != outCounts.end())
+                {
+                    if (--it->second == 0)
+                    {
+                        allocator.free(tOffsets[it->first->getFuid()], it->first->getBytes());
+                    }
                 }
             }
-           }
         }
-        char * bptr=(char*)allocator.getPtr();
-        for(auto &t:tensors){
-            Blob b=make_ref<BlobObj>(runtime,bptr+tOffsets[t->getFuid()]);
+        char *bptr = (char *)allocator.getPtr();
+        for (auto &t : tensors)
+        {
+            Blob b = make_ref<BlobObj>(runtime, bptr + tOffsets[t->getFuid()]);
             t->setDataBlob(b);
         }
-        
-        
-        
-        // 
+
+        //
         // HINT: 获取分配好的内存指针后，可以调用 tensor 的 setDataBlob 函数给 tensor 绑定内存
         // =================================== 作业 ===================================
 
