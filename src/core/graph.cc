@@ -110,7 +110,7 @@ namespace infini
 
                 auto &op = *(TransposeObj *)opPtr.get(); // 第二个
                 auto input = op.getInputs(0);
-                if (input->getSource()->getOpType() == OpType::Transpose)
+                if (input->getSource() && input->getSource()->getOpType() == OpType::Transpose)
                 {
                     auto &op2 = *(TransposeObj *)input->getSource().get(); // 第一个
                     auto shape1 = op.getPermute();
@@ -133,10 +133,12 @@ namespace infini
                     {
                         auto output = op.getOutput(0);
                         auto getTargets=output->getTargets();
+                        auto grandParentInput = op2.getInputs(0);
                         for(size_t i=0;i<getTargets.size();i++){
-                            auto input = op2.getInputs(0);
                             auto target = getTargets[i];
-                            target->replaceInput(output, input);;
+                            target->replaceInput(output, grandParentInput);;
+                            grandParentInput->addTarget(target);
+                            output->removeTarget(target);
                         }
 
                         removeOps.push_back(opPtr);
@@ -151,7 +153,7 @@ namespace infini
 
                 tensor = op.getInputs()[0]; // Tensor A
 
-                if (tensor->getSource()->getOpType() == OpType::Transpose)
+                if (tensor->getSource() && tensor->getSource()->getOpType() == OpType::Transpose)
                 {
                     auto &op2 = *(TransposeObj *)tensor->getSource().get();
                     auto shape = op2.getPermute();
@@ -168,13 +170,15 @@ namespace infini
                         op.replaceInput(tensor, op2.getInputs(0));
                         removeOps.push_back(tensor->getSource());
                         op.setTransA(!op.getTransA());
+                        tensor->removeTarget(opPtr);
+                        op2.getInputs(0)->addTarget(opPtr);
 
                     }
                 }
 
                 tensor = op.getInputs()[1]; // Tensor B
 
-                if (tensor->getSource()->getOpType() == OpType::Transpose)
+                if (tensor->getSource() && tensor->getSource()->getOpType() == OpType::Transpose)
                 {
                     auto &op2 = *(TransposeObj *)tensor->getSource().get();
                     auto shape = op2.getPermute();
@@ -190,6 +194,8 @@ namespace infini
                         op.replaceInput(tensor, op2.getInputs(0));
                         removeOps.push_back(tensor->getSource());
                         op.setTransB(!op.getTransB());
+                        tensor->removeTarget(opPtr);
+                        op2.getInputs(0)->addTarget(opPtr);
                     }
                 }
             }
@@ -202,12 +208,37 @@ namespace infini
         }
         for (auto &removeop : removeOps)
         {
- 
-            if(removeop->getOutputs()[0]->getTargets().size()==0)
-             {
-                    removeOperator(removeop);
+            // 检查输出 Tensor 是否还有人（Target）在用？
+            // 如果没人用了，说明这个算子是废弃的，可以删。
+            if (removeop->getOutputs()[0]->getTargets().size() == 0)
+            {
+                for (auto &input : removeop->getInputs())
+                {
+                    input->removeTarget(removeop);
+                }
+                for (auto &succ : removeop->getSuccessors())
+                {
+                    succ->removePredecessors(removeop);
+                }
+                for (auto &pred : removeop->getPredecessors())
+                {
+                    pred->removeSuccessors(removeop);
+                }
+                removeOperator(removeop);
+            }
+        }
+        removeOps.clear();
 
-             }
+        for (auto it = tensors.begin(); it != tensors.end();)
+        {
+            if ((*it)->getTargets().empty() && !(*it)->getSource())
+            {
+                it = tensors.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
         }
     }
 
